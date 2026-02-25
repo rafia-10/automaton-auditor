@@ -1,0 +1,1 @@
+"""LangGraph detective nodes."""
