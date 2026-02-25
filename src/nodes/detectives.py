@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from ..state import Evidence, InputState
-from ..tools.doc_tools import ingest_pdf, query_chunks
+from ..tools.doc_tools import get_pdf_metadata, ingest_pdf, query_chunks
 from ..tools.repo_tools import (
     build_ast_graph,
     cleanup_repo,
@@ -16,13 +16,13 @@ from ..tools.repo_tools import (
 
 log = logging.getLogger(__name__)
 
-# Rubric dimension IDs for documents
+# Rubric dimension IDs for documents — prefixed with 'doc_' to match Pydantic constraints
 _DOC_QUERIES = {
     "doc_coverage":      "methodology and approach",
-    "results_clarity":   "results and findings",
-    "limitations":       "limitations and future work",
-    "methodology":       "architecture and design decisions",
-    "evaluation":        "evaluation metrics",
+    "doc_results":       "results and findings",
+    "doc_limitations":   "limitations and future work",
+    "doc_methodology":   "architecture and design decisions",
+    "doc_evaluation":    "evaluation metrics",
 }
 
 
@@ -35,16 +35,19 @@ def repo_investigator(state: InputState) -> dict:
     try:
         repo_dir = clone_repo(url)
 
-        # Use the new Evidence wrappers from repo_tools
+        # Forensic analysis via repo_tools wrappers
         commits = get_git_log(repo_dir)
-        evidence["commit_hygiene"] = make_evidence_from_commits(commits, url)
+        ev_commits = make_evidence_from_commits(commits, url)
+        evidence[ev_commits.dimension_id] = ev_commits
 
         graph = build_ast_graph(repo_dir)
-        evidence["repo_structure"] = make_evidence_from_ast(graph, url)
+        ev_ast = make_evidence_from_ast(graph, url)
+        evidence[ev_ast.dimension_id] = ev_ast
 
-        # Add generic code quality evidence
-        evidence["code_quality"] = Evidence(
-            dimension_id="code_quality",
+        # Additional code quality forensic evidence
+        dim_quality = "forensic_code_quality"
+        evidence[dim_quality] = Evidence(
+            dimension_id=dim_quality,
             source=url,
             kind="repo.ast_edges",
             content="\n".join(f"{f} → {', '.join(imp)}" for f, imp in list(graph.edges.items())[:10]),
@@ -68,6 +71,7 @@ def doc_analyst(state: InputState) -> dict:
     for path in state.get("pdf_paths", []):
         try:
             chunks = ingest_pdf(path)
+            meta = get_pdf_metadata(path)
             for dim_id, query in _DOC_QUERIES.items():
                 top = query_chunks(chunks, query, top_k=3)
                 if top:
@@ -76,7 +80,11 @@ def doc_analyst(state: InputState) -> dict:
                         source=path,
                         kind="doc.pdf_chunk",
                         content="\n\n---\n\n".join(top),
-                        metadata={"query": query, "pdf": Path(path).name},
+                        metadata={
+                            "query": query, 
+                            "pdf": Path(path).name,
+                            **meta
+                        },
                     )
         except Exception as exc:
             errors.append(f"[doc_analyst] {path}: {type(exc).__name__}: {exc}")
