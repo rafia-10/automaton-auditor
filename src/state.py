@@ -18,29 +18,29 @@ from typing_extensions import TypedDict
 
 class Evidence(BaseModel):
     """A single piece of auditor-collected evidence, tagged by rubric dimension."""
-    dimension_id: str                          # e.g. "code_quality", "doc_coverage"
-    source: str                                # repo URL or PDF path
-    kind: str                                  # "repo.git_log" | "repo.ast_edges" | "doc.pdf_chunk"
-    content: str
+    dimension_id: str = Field(..., pattern=r"^(forensic|doc)_[a-z0-9_]+$")
+    source: str = Field(..., min_length=1)
+    kind: str = Field(..., pattern=r"^(repo|doc)\.[a-z0-9_]+$")
+    content: str = Field(..., min_length=1)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     collected_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 class JudicialOpinion(BaseModel):
     """A structured ruling produced by a Judge node for one rubric dimension."""
-    dimension_id: str
-    verdict: str                               # "pass" | "fail" | "partial"
-    score: float                               # 0.0 – 1.0
-    rationale: str
+    dimension_id: str = Field(..., pattern=r"^(forensic|doc)_[a-z0-9_]+$")
+    verdict: str = Field(..., pattern=r"^(pass|fail|partial)$")
+    score: float = Field(..., ge=0.0, le=1.0)
+    rationale: str = Field(..., min_length=10)
     evidence_keys: List[str] = Field(default_factory=list)
     ruled_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
 class FinalVerdict(BaseModel):
     """Aggregate verdict synthesised from all JudicialOpinions."""
-    overall_score: float
+    overall_score: float = Field(..., ge=0.0, le=1.0)
     passed: bool
-    summary: str
+    summary: str = Field(..., min_length=20)
     dimension_scores: Dict[str, float] = Field(default_factory=dict)
     issued_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
