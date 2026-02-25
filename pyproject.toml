@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "automaton-auditor"
+version = "0.2.0"
+description = "Multi-agent system that audits GitHub repos and PDF reports using LangGraph."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+dependencies = [
+    # LangGraph + LangChain core
+    "langgraph>=0.2",
+    "langchain-core>=0.2",
+    "langchain-openai>=0.1",   # optional — only needed if you swap in LLM nodes
+
+    # State / serialisation
+    "pydantic>=2.7",
+    "typing-extensions>=4.12",
+
+    # PDF ingestion
+    "pypdf>=4.2",
+
+    # RAG-lite / ML utilities
+    "scikit-learn>=1.5",       # TF-IDF vectoriser (upgradeable to embeddings)
+    "numpy>=1.26",
+
+    # Environment & config
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.uv]
+# Pin the entire dependency tree for reproducibility.
+# Run `uv lock` after editing dependencies, then commit uv.lock.
+dev-dependencies = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "BLE"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
