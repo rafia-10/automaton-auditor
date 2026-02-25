@@ -34,8 +34,7 @@
 automaton-auditor/
 ├── src/
 │   ├── __init__.py
-│   ├── models.py          # Pydantic: Evidence, JudicialOpinion, AgentState
-│   ├── state.py           # LangGraph GraphState TypedDict with reducers
+│   ├── state.py           # Pydantic Evidence/JudicialOpinion + AgentState TypedDict
 │   ├── graph.py           # Compiled audit_graph (fan-out → fan-in)
 │   ├── nodes/
 │   │   ├── __init__.py
@@ -147,15 +146,15 @@ uv run pytest
 
 ## State Model
 
-| Field        | Type                        | Reducer       | Description                          |
-|--------------|-----------------------------|---------------|--------------------------------------|
-| `repo_url`   | `str`                       | last-write    | Target GitHub URL                    |
-| `pdf_paths`  | `list[str]`                 | last-write    | Paths to PDF reports                 |
-| `repo_dir`   | `str \| None`               | last-write    | Temporary clone directory            |
-| `evidence`   | `list[Evidence]`            | `operator.add`| Merged evidence from all detectives  |
-| `opinions`   | `list[JudicialOpinion]`     | `operator.add`| Judge outputs (Week 3)               |
-| `errors`     | `list[str]`                 | `operator.add`| Non-fatal errors from any node       |
-| `summary`    | `str \| None`               | last-write    | Aggregator summary text              |
+| Field        | Type                          | Reducer        | Description                          |
+|--------------|-------------------------------|----------------|--------------------------------------|
+| `repo_url`   | `str`                         | last-write     | Target GitHub URL                    |
+| `pdf_paths`  | `list[str]`                   | last-write     | Paths to PDF reports                 |
+| `repo_dir`   | `str \| None`                 | last-write     | Temporary clone directory            |
+| `evidence`   | `Dict[str, Evidence]`         | `operator.ior` | Evidence keyed by rubric dimension ID|
+| `opinions`   | `Dict[str, JudicialOpinion]`  | `operator.ior` | Judge outputs (Week 3)               |
+| `errors`     | `list[str]`                   | `operator.add` | Non-fatal errors from any node       |
+| `verdict`    | `FinalVerdict \| None`        | last-write     | Aggregator verdict object            |
 
 ## Extending
 

@@ -108,8 +108,12 @@ def initial_state(repo_url: str, pdf_paths: List[str] | None = None) -> GraphSta
     )
 
 
+# AgentState is the primary state used by the graph (aliased for requirements)
+AgentState = GraphState
+
+
 __all__ = [
     "Evidence", "JudicialOpinion", "FinalVerdict",
     "InputState", "DetectiveState", "JudgeState", "VerdictState",
-    "GraphState", "initial_state",
+    "GraphState", "AgentState", "initial_state",
 ]
