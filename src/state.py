@@ -44,6 +44,8 @@ class FinalVerdict(BaseModel):
     dissent_summary: Optional[str] = None
     remediation_plan: List[str] = Field(default_factory=list)
     dimension_scores: Dict[str, float] = Field(default_factory=dict)
+    dialectical_summary: str = Field(..., min_length=20)
+    architectural_flaws: List[str] = Field(default_factory=list)
     issued_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
 
@@ -84,14 +86,21 @@ class VerdictState(TypedDict):
 # ---------------------------------------------------------------------------
 
 class GraphState(InputState, DetectiveState, JudgeState, VerdictState):
-    """Complete state flowing through the audit graph.
+    """
+    Complete state flowing through the audit graph.
+    
+    New Fields for Dialectical Synthesis:
+    - debate_log: List of trade-off discussions from judges.
+    - architectural_flaws: List of deep flaws identified by MinMax phase.
 
     Stages
     ------
-    1. detectives  → populate DetectiveState.evidence  (fan-out / fan-in)
-    2. judges      → populate JudgeState.opinions      (one per dimension)
-    3. aggregator  → populate VerdictState.verdict
+    1. detectives  -> populate DetectiveState.evidence  (fan-out / fan-in)
+    2. judges      -> populate JudgeState.opinions      (one per dimension)
+    3. aggregator  -> populate VerdictState.verdict
     """
+    debate_log: Annotated[List[str], operator.add]
+    architectural_flaws: Annotated[List[str], operator.add]
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +116,8 @@ def initial_state(repo_url: str, pdf_paths: List[str] | None = None) -> GraphSta
         errors=[],
         opinions=[],
         verdict=None,
+        debate_log=[],
+        architectural_flaws=[],
     )
 
 

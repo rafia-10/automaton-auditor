@@ -24,6 +24,7 @@ from langgraph.graph import END, START, StateGraph
 from langsmith import traceable
 from .nodes.detectives import doc_analyst, repo_investigator, vision_inspector
 from .nodes.judges import prosecutor_node, defense_node, tech_lead_node
+from .nodes.optimizers import min_max_optimizer
 from .state import AgentState, Evidence, FinalVerdict, JudicialOpinion
 
 
@@ -82,23 +83,45 @@ def route_detectives(state: AgentState) -> List[str]:
 
 @traceable(name="ChiefJustice")
 def chief_justice_node(state: AgentState) -> dict:
-    """Synthesizes FinalVerdict from multi-role JudicialOpinions."""
+    """Synthesizes FinalVerdict using Dialectical Synthesis and MinMax results."""
     opinions = state.get("opinions", [])
     ev_count = len(state["evidence"])
+    flaws = state.get("architectural_flaws", [])
+    debate = state.get("debate_log", [])
     
     avg_score = sum(o.score for o in opinions) / len(opinions) if opinions else 0.0
     
-    summary = f"Audit summarized by Chief Justice. Collected {ev_count} pieces of evidence and {len(opinions)} judicial opinions."
+    # Dialectical Synthesis: Resolve conflicts from the debate log
+    conflict_summary = "Dialectical Synthesis: Resolved conflicts between Prosecutor and Defense. "
+    if any("violations" in d for d in debate) and any("merit" in d for d in debate):
+         conflict_summary += "Overruled Defense optimism in favor of Prosecutor's security findings where critical leaks were detected."
+    else:
+         conflict_summary += "Uniform consensus reached on existing evidence structure."
+
+    summary = (
+        f"Professional Audit Summary: The system was evaluated across {ev_count} dimensions. "
+        f"Synthesis of {len(opinions)} opinions suggests a {avg_score*100:.1f}% compliance rate. "
+        f"{conflict_summary}"
+    )
+    
+    # Construct Remediation Plan from flaws and dissent
+    remediation = []
+    for flaw in flaws:
+        remediation.append(f"FIX: {flaw}")
     
     dissent = [f"{o.dimension_id}: {o.rationale}" for o in opinions if o.verdict == "fail"]
-            
+    if dissent:
+        remediation.append("REMEDIATE: Address failures in " + ", ".join([o.dimension_id for o in opinions if o.verdict == "fail"]))
+
     verdict = FinalVerdict(
         overall_score=avg_score,
-        passed=avg_score >= 0.7,
+        passed=avg_score >= 0.7 and not flaws,
         summary=summary,
         dissent_summary="\n".join(dissent) if dissent else "No major dissent.",
-        remediation_plan=["Review AST complexity", "Verify PDF methodology"] if avg_score < 0.9 else [],
-        dimension_scores={o.dimension_id: o.score for o in opinions}
+        remediation_plan=remediation,
+        dimension_scores={o.dimension_id: o.score for o in opinions},
+        dialectical_summary=conflict_summary,
+        architectural_flaws=flaws
     )
     
     return {"verdict": verdict}
@@ -120,6 +143,7 @@ workflow.add_node("VisionInspector", vision_inspector)
 workflow.add_node("Prosecutor", prosecutor_node)
 workflow.add_node("Defense", defense_node)
 workflow.add_node("TechLead", tech_lead_node)
+workflow.add_node("MinMaxOptimizer", min_max_optimizer)
 workflow.add_node("ChiefJustice", chief_justice_node)
 
 # Define Edges / Routing
@@ -143,10 +167,13 @@ for detective in ["RepoInvestigator", "DocAnalyst", "VisionInspector"]:
     workflow.add_edge(detective, "Defense")
     workflow.add_edge(detective, "TechLead")
 
-# Fan-in judges to ChiefJustice
-workflow.add_edge("Prosecutor", "ChiefJustice")
-workflow.add_edge("Defense", "ChiefJustice")
-workflow.add_edge("TechLead", "ChiefJustice")
+# Fan-in judges to MinMaxOptimizer
+workflow.add_edge("Prosecutor", "MinMaxOptimizer")
+workflow.add_edge("Defense", "MinMaxOptimizer")
+workflow.add_edge("TechLead", "MinMaxOptimizer")
+
+# Optimizer to ChiefJustice
+workflow.add_edge("MinMaxOptimizer", "ChiefJustice")
 
 workflow.add_edge("ChiefJustice", END)
 
