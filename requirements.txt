@@ -1,0 +1,27 @@
+# --- Core LLM + Orchestration ---
+langchain>=0.2.0
+langgraph>=0.1.20
+langsmith>=0.1.125
+openai>=1.40.0
+
+# --- Structured Output + Validation ---
+pydantic>=2.7.0
+typing-extensions>=4.12.0
+
+# --- Environment Management ---
+python-dotenv>=1.0.1
+
+# --- Git & Repo Forensics ---
+gitpython>=3.1.43
+
+# --- PDF Parsing ---
+pypdf>=4.2.0
+
+# --- Optional: Better PDF/Text Handling ---
+pdfminer.six>=20231228
+
+# --- JSON + Utility ---
+orjson>=3.10.0
+
+# --- CLI / Dev Quality ---
+rich>=13.7.0

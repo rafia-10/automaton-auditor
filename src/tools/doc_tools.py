@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import logging
 import math
 import re
 from collections import Counter
 from pathlib import Path
 
-log = logging.getLogger(__name__)
 
 _QUERIES = [
     "methodology and approach",

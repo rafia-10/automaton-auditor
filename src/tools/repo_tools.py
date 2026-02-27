@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import ast
-import logging
 import shutil
 import subprocess
 import tempfile
@@ -11,8 +10,6 @@ from pathlib import Path
 from typing import Any, List, Dict, Optional
 
 from src.state import Evidence  # Pydantic Evidence model
-
-log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Typed result models
@@ -70,10 +67,8 @@ def safe_run(args: List[str], cwd: Optional[Path] = None, timeout: int = 60) -> 
         )
         return r
     except subprocess.TimeoutExpired as e:
-        log.error("Command timed out after %ds: %s", timeout, " ".join(args))
         raise RuntimeError(f"Command timed out: {' '.join(args)}") from e
     except subprocess.CalledProcessError as e:
-        log.error("Command failed (exit %d): %s\nStderr: %s", e.returncode, " ".join(args), e.stderr)
         raise RuntimeError(f"Command failed with exit {e.returncode}: {e.stderr.strip()}") from e
 
 
@@ -115,8 +110,7 @@ def get_git_log(repo_dir: Path, max_commits: int = 50) -> List[CommitRecord]:
             if len(parts) == 5:
                 commits.append(CommitRecord(*parts))
         return commits
-    except Exception as e:
-        log.warning("Failed to get git log: %s", e)
+    except Exception:
         return []
 
 

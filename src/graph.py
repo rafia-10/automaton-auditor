@@ -4,10 +4,21 @@ from __future__ import annotations
 import operator
 from typing import Dict, List, Literal
 
+import os
 from dotenv import load_dotenv
 
 # Load environment variables from .env before anything else
 load_dotenv()
+
+# Bridge LANGSMITH_API_KEY to LANGCHAIN_API_KEY if needed (compatibility)
+if os.getenv("LANGSMITH_API_KEY") and not os.getenv("LANGCHAIN_API_KEY"):
+    os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGSMITH_API_KEY")
+
+# Check for tracing config and warn if missing
+if os.getenv("LANGCHAIN_TRACING_V2") == "true":
+    if not os.getenv("LANGCHAIN_API_KEY"):
+        print("⚠️  WARNING: LANGCHAIN_TRACING_V2 is enabled but LANGCHAIN_API_KEY is missing/empty.")
+        print("   Traces will not be sent to LangSmith. Check your .env file.")
 from langgraph.graph import END, START, StateGraph
 
 from langsmith import traceable
