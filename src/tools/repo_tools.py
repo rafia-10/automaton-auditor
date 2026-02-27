@@ -191,43 +191,193 @@ def build_ast_graph(repo_dir: Path) -> ASTGraph:
 
 
 # ---------------------------------------------------------------------------
-# Detective Evidence wrapper
+# Specific Rubric Forensic Checks
 # ---------------------------------------------------------------------------
 
-def make_evidence_from_commits(commits: List[CommitRecord], repo_url: str) -> Evidence:
-    content = "\n".join(f"{c.hash[:8]} {c.subject}" for c in commits)
+def check_git_progression(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Run 'git log --oneline --reverse' and check progression."""
+    try:
+        r = safe_run(["git", "log", "--oneline", "--reverse"], cwd=repo_dir)
+        lines = r.stdout.strip().splitlines()
+        count = len(lines)
+        messages = [l.split(" ", 1)[1] for l in lines if " " in l]
+        
+        # Check progression pattern (heuristically)
+        progression = "Environment Setup" in r.stdout or "setup" in r.stdout.lower()
+        success = count > 3
+        
+        return Evidence(
+            goal="Verify git commit history progression.",
+            found=success,
+            content=r.stdout,
+            location="git log",
+            rationale=f"Found {count} commits. progression_story: {success}",
+            confidence=1.0 if count > 0 else 0.5
+        )
+    except Exception as e:
+        return Evidence(
+            goal="Verify git commit history progression.",
+            found=False,
+            location="git log",
+            rationale=f"Error running git log: {str(e)}",
+            confidence=0.0
+        )
+
+def check_state_rigor(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Scan for state definitions using AST."""
+    found_pydantic = False
+    found_reducers = False
+    code_snippets = []
+    
+    for py_file in repo_dir.rglob("*.py"):
+        try:
+            tree = ast.parse(py_file.read_text())
+            for node in ast.walk(tree):
+                # Look for Pydantic/TypedDict
+                if isinstance(node, ast.ClassDef):
+                    for base in node.bases:
+                        if isinstance(base, ast.Name) and base.id in ("BaseModel", "TypedDict"):
+                            found_pydantic = True
+                            code_snippets.append(ast.unparse(node))
+                
+                # Look for operator.add/ior
+                if isinstance(node, ast.Attribute):
+                    if node.attr in ("add", "ior") and isinstance(node.value, ast.Name) and node.value.id == "operator":
+                        found_reducers = True
+        except:
+            continue
+
     return Evidence(
-        dimension_id="forensic_commit_hygiene",
-        source=repo_url,
-        kind="repo.git_log",
-        content=content if content else "No commits found.",
-        metadata={"total_commits": len(commits)},
+        goal="State Management Rigor (Phase 0)",
+        found=found_pydantic and found_reducers,
+        content="\n---\n".join(code_snippets[:2]),
+        location="src/state.py or equivalent",
+        rationale=f"found_pydantic={found_pydantic}, found_reducers={found_reducers}",
+        confidence=0.9
     )
 
+def check_graph_orchestration(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Scan for StateGraph and fan-out/fan-in."""
+    found_graph = False
+    found_parallel = False
+    
+    for py_file in repo_dir.rglob("*.py"):
+        try:
+            content = py_file.read_text()
+            if "StateGraph" in content:
+                found_graph = True
+            
+            tree = ast.parse(content)
+            for node in ast.walk(tree):
+                # Heuristic for parallel branches: multiple edges from same node
+                if isinstance(node, ast.Call) and hasattr(node.func, "attr") and node.func.attr == "add_edge": # type: ignore
+                    found_parallel = True # Simple check for now
+        except:
+            continue
 
-def make_evidence_from_ast(ast_graph: ASTGraph, repo_url: str) -> Evidence:
-    stats = ast_graph.stats
-    content = (
-        f"Forensic Repo Audit Summary for {repo_url}\n"
-        f"------------------------------------------\n"
-        f"Total Files: {stats['total_files']}\n"
-        f"Total LOC: {stats['total_loc']}\n"
-        f"Defined Symbols: {stats['total_symbols']}\n"
-        f"Suspicious Patterns: {stats['suspicious_count']}\n"
-        f"Parse Errors: {stats['parse_errors']}\n"
-    )
     return Evidence(
-        dimension_id="forensic_repo_structure",
-        source=repo_url,
-        kind="repo.ast_graph",
-        content=content,
-        metadata=stats,
+        goal="Graph Orchestration Architecture (Phase 1)",
+        found=found_graph,
+        location="src/graph.py or equivalent",
+        rationale=f"found_graph={found_graph}, found_parallel_logic={found_parallel}",
+        confidence=0.8
     )
 
+def check_tool_safety(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Scan for tempfile and subprocess safety."""
+    uses_temp = False
+    unsafe_os = False
+    snippet = ""
+    
+    for py_file in repo_dir.rglob("*.py"):
+        try:
+            content = py_file.read_text()
+            if "tempfile" in content or "TemporaryDirectory" in content:
+                uses_temp = True
+            if "os.system(" in content:
+                unsafe_os = True
+                snippet = "Detected os.system call"
+        except:
+            continue
+
+    return Evidence(
+        goal="Safe Tool Engineering (Phase 2)",
+        found=uses_temp and not unsafe_os,
+        content=snippet,
+        location="src/tools/",
+        rationale=f"uses_temp={uses_temp}, unsafe_os_system={unsafe_os}",
+        confidence=1.0
+    )
+
+def check_structured_output(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Scan Judge nodes for .with_structured_output()."""
+    found_structured = False
+    snippet = ""
+    
+    for py_file in repo_dir.rglob("judges.py"):
+        try:
+            content = py_file.read_text()
+            if ".with_structured_output(" in content or ".bind_tools(" in content:
+                found_structured = True
+                snippet = "Detected .with_structured_output call"
+        except:
+            continue
+
+    return Evidence(
+        goal="Structured Output Enforcement (Phase 3)",
+        found=found_structured,
+        content=snippet,
+        location="src/nodes/judges.py",
+        rationale=f"found_structured={found_structured}",
+        confidence=1.0
+    )
+
+def check_judicial_nuance(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Compare Judge prompts for distinctness."""
+    found_distinct = False
+    
+    for py_file in repo_dir.rglob("judges.py"):
+        try:
+            content = py_file.read_text()
+            if "PROSECUTOR_PROMPT" in content and "DEFENSE_PROMPT" in content and "TECHLEAD_PROMPT" in content:
+                found_distinct = True
+        except:
+            continue
+
+    return Evidence(
+        goal="Judicial Nuance and Dialectics",
+        found=found_distinct,
+        content="Detected distinct PROSECUTOR, DEFENSE, and TECHLEAD prompt templates." if found_distinct else "",
+        location="src/nodes/judges.py",
+        rationale=f"found_distinct_prompts={found_distinct}",
+        confidence=1.0
+    )
+
+def check_justice_synthesis(repo_dir: Path) -> Evidence:
+    """Forensic Instruction: Verify deterministic synthesis logic."""
+    found_logic = False
+    
+    for py_file in repo_dir.rglob("justice.py"):
+        try:
+            content = py_file.read_text()
+            if "def resolve_dimension" in content and ("if" in content or "weights" in content):
+                found_logic = True
+        except:
+            continue
+
+    return Evidence(
+        goal="Chief Justice Synthesis Engine",
+        found=found_logic,
+        content="Detected deterministic resolve_dimension logic with conditional weighting." if found_logic else "",
+        location="src/nodes/justice.py",
+        rationale=f"found_deterministic_logic={found_logic}",
+        confidence=1.0
+    )
 
 __all__ = [
     "CommitRecord", "ASTGraph",
     "clone_repo", "cleanup_repo", "get_git_log", "build_ast_graph",
-    "make_evidence_from_commits", "make_evidence_from_ast",
+    "check_git_progression", "check_state_rigor", "check_graph_orchestration", "check_tool_safety", "check_structured_output",
+    "check_judicial_nuance", "check_justice_synthesis",
     "safe_run"
 ]

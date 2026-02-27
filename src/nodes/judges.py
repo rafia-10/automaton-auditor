@@ -1,64 +1,129 @@
+"""src/nodes/judges.py — Judicial Persona Nodes using LLMs."""
 from __future__ import annotations
+import os
+from typing import Any, List
 from langsmith import traceable
-from ..state import Evidence, JudicialOpinion, AgentState
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from ..state import AgentState, JudicialOpinion, Evidence
+
+# --- LLM Setup ---
+
+def get_model():
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    base_url = None
+    model_name = "gpt-4o"
+    if api_key.startswith("sk-or-v1"):
+        base_url = "https://openrouter.ai/api/v1"
+        model_name = "google/gemma-3-4b-it:free"
+    
+    return ChatOpenAI(
+        model=model_name, 
+        temperature=0, 
+        openai_api_key=api_key,
+        base_url=base_url,
+        max_tokens=500
+    ).with_structured_output(JudicialOpinion)
+
+# --- Prosecutor ---
+
+PROSECUTOR_PROMPT = """You are the PROSECUTOR in a Digital Courtroom.
+Your philosophy is: "Trust No One. Assume Vibe Coding."
+Your goal is to scrutinize evidence for gaps, security flaws, laziness, and bypassed structure.
+If the evidence shows linear pipelines where parallelism was requested, charge "Orchestration Fraud".
+If Judge nodes return freeform text, charge "Hallucination Liability".
+Always look for the worst-case interpretation of the evidence.
+
+Dimension being judged: {dimension_name}
+Collected Evidence:
+{evidence_content}
+
+Render your verdict as a JudicialOpinion."""
 
 @traceable(name="Prosecutor")
 def prosecutor_node(state: AgentState) -> dict:
-    """Argues for strict compliance and highlights failures."""
-    opinions = []
-    debate = []
-    for dim_id, ev in state.get("evidence", {}).items():
-        # Dialectical logic: identify strictly negative aspects
-        negative_points = [line for line in ev.content.split("\n") if "error" in line.lower() or "fail" in line.lower()]
-        score = 0.4 if negative_points else 0.7
-        
-        debate.append(f"[Prosecutor] Dimension {dim_id}: Found {len(negative_points)} strict violations. Maintenance cost is too high.")
-        
-        opinions.append(JudicialOpinion(
-            dimension_id=dim_id,
-            verdict="fail" if score < 0.5 else "partial",
-            score=score,
-            rationale=f"Prosecutor found {len(negative_points)} issues in {ev.kind}.",
-            evidence_keys=[dim_id]
-        ))
-    return {"opinions": opinions, "debate_log": debate}
+    model = get_model()
+    prompt = ChatPromptTemplate.from_template(PROSECUTOR_PROMPT)
+    chain = prompt | model
+    
+    new_opinions = []
+    for dim_id, ev_list in state["evidences"].items():
+        ev = ev_list[0] # Take first canonical evidence
+        opinion = chain.invoke({
+            "dimension_name": dim_id,
+            "evidence_content": ev.content
+        })
+        opinion.judge = "Prosecutor"
+        opinion.criterion_id = dim_id
+        new_opinions.append(opinion)
+    
+    return {"opinions": new_opinions}
+
+# --- Defense ---
+
+DEFENSE_PROMPT = """You are the DEFENSE ATTORNEY in a Digital Courtroom.
+Your philosophy is: "Reward Effort and Intent. Look for the 'Spirit of the Law'."
+Your goal is to highlight creative workarounds, deep thought, and engineering process.
+Even if the code is buggy, if the architecture shows deep understanding, argue for a "Master Thinker" profile.
+Highlight strengths and mitigate failures as "learning iterations" or "syntactic hurdles".
+
+Dimension being judged: {dimension_name}
+Collected Evidence:
+{evidence_content}
+
+Render your verdict as a JudicialOpinion."""
 
 @traceable(name="Defense")
 def defense_node(state: AgentState) -> dict:
-    """Advocates for the implementation, emphasizing constraints and context."""
-    opinions = []
-    debate = []
-    for dim_id, ev in state.get("evidence", {}).items():
-        # Dialectical logic: highlight innovation/effort
-        merit_points = [line for line in ev.content.split("\n") if "validated" in line.lower() or "completed" in line.lower()]
-        
-        debate.append(f"[Defense] Dimension {dim_id}: Despite criticisms, the code shows {len(merit_points)} successful validations. It's a pragmatic trade-off.")
-        
-        opinions.append(JudicialOpinion(
-            dimension_id=dim_id,
-            verdict="pass",
-            score=0.9 if merit_points else 0.6,
-            rationale=f"Defense highlights {len(merit_points)} points of successful execution.",
-            evidence_keys=[dim_id]
-        ))
-    return {"opinions": opinions, "debate_log": debate}
+    model = get_model()
+    prompt = ChatPromptTemplate.from_template(DEFENSE_PROMPT)
+    chain = prompt | model
+    
+    new_opinions = []
+    for dim_id, ev_list in state["evidences"].items():
+        ev = ev_list[0]
+        opinion = chain.invoke({
+            "dimension_name": dim_id,
+            "evidence_content": ev.content
+        })
+        opinion.judge = "Defense"
+        opinion.criterion_id = dim_id
+        new_opinions.append(opinion)
+    
+    return {"opinions": new_opinions}
+
+# --- Tech Lead ---
+
+TECHLEAD_PROMPT = """You are the TECH LEAD in a Digital Courtroom.
+Your philosophy is: "Does it actually work? Is it maintainable?"
+Your goal is to evaluate architectural soundness, code cleanliness, and practical viability.
+Ignore "Vibe" or "Struggle". Focus on technical debt.
+Is the operator.add reducer used? Are tool calls isolated?
+You are the pragmatic tie-breaker between Prosecutor and Defense.
+
+Dimension being judged: {dimension_name}
+Collected Evidence:
+{evidence_content}
+
+Render your verdict as a JudicialOpinion."""
 
 @traceable(name="TechLead")
 def tech_lead_node(state: AgentState) -> dict:
-    """Evaluates technical feasibility and long-term maintainability."""
-    opinions = []
-    debate = []
-    for dim_id, ev in state.get("evidence", {}).items():
-        # Dialectical logic: deterministic rules for conflict resolution
-        is_complex = len(ev.content) > 200
-        
-        debate.append(f"[TechLead] Dimension {dim_id}: Architectural feasibility is {'high' if not is_complex else 'low due to complexity'}. We must prioritize stability.")
-        
-        opinions.append(JudicialOpinion(
-            dimension_id=dim_id,
-            verdict="partial" if is_complex else "pass",
-            score=0.5 if is_complex else 0.85,
-            rationale=f"TechLead evaluates complexity as {'high' if is_complex else 'manageable'}.",
-            evidence_keys=[dim_id]
-        ))
-    return {"opinions": opinions, "debate_log": debate}
+    model = get_model()
+    prompt = ChatPromptTemplate.from_template(TECHLEAD_PROMPT)
+    chain = prompt | model
+    
+    new_opinions = []
+    for dim_id, ev_list in state["evidences"].items():
+        ev = ev_list[0]
+        opinion = chain.invoke({
+            "dimension_name": dim_id,
+            "evidence_content": ev.content
+        })
+        opinion.judge = "TechLead"
+        opinion.criterion_id = dim_id
+        new_opinions.append(opinion)
+    
+    return {"opinions": new_opinions}
+
+__all__ = ["prosecutor_node", "defense_node", "tech_lead_node"]

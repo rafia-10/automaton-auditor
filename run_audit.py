@@ -18,7 +18,7 @@ def run():
     # Construct initial state
     state = initial_state(
         repo_url=repo_url,
-        pdf_paths=[pdf_path]
+        pdf_path=pdf_path
     )
     
     print(f"Running graph for: {repo_url}")
@@ -26,16 +26,14 @@ def run():
     
     try:
         # Execute the graph
-        # Using .invoke() as per LangGraph 0.2+ standards
         final_state = audit_graph.invoke(state)
         
         print("\nAudit Complete!")
-        verdict = final_state.get("verdict")
-        if verdict:
-            print(f"Overall Score: {verdict.overall_score:.2f}")
-            print(f"Passed: {verdict.passed}")
-            print(f"Summary: {verdict.summary}")
-            print(f"Dissent: {verdict.dissent_summary}")
+        report = final_state.get("final_report")
+        if report:
+            print(f"Overall Score: {report.overall_score:.2f}")
+            print(f"Summary: {report.executive_summary}")
+            print("\nAudit report generated in audit/report_onself_generated/report.md")
         
         print("\nTrace should be captured in LangSmith (check your dashboard).")
         

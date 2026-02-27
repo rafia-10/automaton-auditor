@@ -25,7 +25,8 @@ from langsmith import traceable
 from .nodes.detectives import doc_analyst, repo_investigator, vision_inspector
 from .nodes.judges import prosecutor_node, defense_node, tech_lead_node
 from .nodes.optimizers import min_max_optimizer
-from .state import AgentState, Evidence, FinalVerdict, JudicialOpinion
+from .nodes.justice import chief_justice_node
+from .state import AgentState, Evidence, AuditReport, JudicialOpinion
 
 
 # ---------------------------------------------------------------------------
@@ -49,15 +50,16 @@ def check_config(state: AgentState) -> dict:
 
     if not errors:
         ev = Evidence(
-            dimension_id="forensic_preflight",
-            source="system",
-            kind="repo.config_check",
+            goal="Validate Input Configuration",
+            found=True,
             content=f"Configuration validated for repo: {repo}",
-            metadata={"pdf_count": len(state.get("pdf_paths", []))}
+            location="system.config",
+            rationale="Pre-flight check passed.",
+            confidence=1.0
         )
-        evidence[ev.dimension_id] = ev
+        evidence[ev.goal] = [ev] # Note: detectives return lists of evidences by goal/dim_id
 
-    return {"errors": errors, "evidence": evidence}
+    return {"errors": errors, "evidences": evidence}
 
 check_config.name = "check_config"
 
@@ -77,57 +79,10 @@ def route_detectives(state: AgentState) -> List[str]:
     return detectives
 
 
-# ---------------------------------------------------------------------------
-# Aggregator (Chief Judge)
-# ---------------------------------------------------------------------------
-
-@traceable(name="ChiefJustice")
-def chief_justice_node(state: AgentState) -> dict:
-    """Synthesizes FinalVerdict using Dialectical Synthesis and MinMax results."""
-    opinions = state.get("opinions", [])
-    ev_count = len(state["evidence"])
-    flaws = state.get("architectural_flaws", [])
-    debate = state.get("debate_log", [])
-    
-    avg_score = sum(o.score for o in opinions) / len(opinions) if opinions else 0.0
-    
-    # Dialectical Synthesis: Resolve conflicts from the debate log
-    conflict_summary = "Dialectical Synthesis: Resolved conflicts between Prosecutor and Defense. "
-    if any("violations" in d for d in debate) and any("merit" in d for d in debate):
-         conflict_summary += "Overruled Defense optimism in favor of Prosecutor's security findings where critical leaks were detected."
-    else:
-         conflict_summary += "Uniform consensus reached on existing evidence structure."
-
-    summary = (
-        f"Professional Audit Summary: The system was evaluated across {ev_count} dimensions. "
-        f"Synthesis of {len(opinions)} opinions suggests a {avg_score*100:.1f}% compliance rate. "
-        f"{conflict_summary}"
-    )
-    
-    # Construct Remediation Plan from flaws and dissent
-    remediation = []
-    for flaw in flaws:
-        remediation.append(f"FIX: {flaw}")
-    
-    dissent = [f"{o.dimension_id}: {o.rationale}" for o in opinions if o.verdict == "fail"]
-    if dissent:
-        remediation.append("REMEDIATE: Address failures in " + ", ".join([o.dimension_id for o in opinions if o.verdict == "fail"]))
-
-    verdict = FinalVerdict(
-        overall_score=avg_score,
-        passed=avg_score >= 0.7 and not flaws,
-        summary=summary,
-        dissent_summary="\n".join(dissent) if dissent else "No major dissent.",
-        remediation_plan=remediation,
-        dimension_scores={o.dimension_id: o.score for o in opinions},
-        dialectical_summary=conflict_summary,
-        architectural_flaws=flaws
-    )
-    
-    return {"verdict": verdict}
-
-chief_justice_node.name = "chief_justice_node"
-
+@traceable(name="EvidenceAggregator")
+def evidence_aggregator_node(state: AgentState) -> dict:
+    """Synchronization node for detectives."""
+    return {} # Just a fan-in point
 
 # ---------------------------------------------------------------------------
 # Graph Construction
@@ -140,6 +95,7 @@ workflow.add_node("check_config", check_config)
 workflow.add_node("RepoInvestigator", repo_investigator)
 workflow.add_node("DocAnalyst", doc_analyst)
 workflow.add_node("VisionInspector", vision_inspector)
+workflow.add_node("EvidenceAggregator", evidence_aggregator_node)
 workflow.add_node("Prosecutor", prosecutor_node)
 workflow.add_node("Defense", defense_node)
 workflow.add_node("TechLead", tech_lead_node)
@@ -149,7 +105,7 @@ workflow.add_node("ChiefJustice", chief_justice_node)
 # Define Edges / Routing
 workflow.add_edge(START, "check_config")
 
-# Conditional fan-out from check_config
+# Conditional fan-out to detectives
 workflow.add_conditional_edges(
     "check_config",
     route_detectives,
@@ -161,20 +117,23 @@ workflow.add_conditional_edges(
     }
 )
 
-# Fan-out from detectives to multiple judges
-for detective in ["RepoInvestigator", "DocAnalyst", "VisionInspector"]:
-    workflow.add_edge(detective, "Prosecutor")
-    workflow.add_edge(detective, "Defense")
-    workflow.add_edge(detective, "TechLead")
+# Fan-in detectives to EvidenceAggregator
+workflow.add_edge("RepoInvestigator", "EvidenceAggregator")
+workflow.add_edge("DocAnalyst", "EvidenceAggregator")
+workflow.add_edge("VisionInspector", "EvidenceAggregator")
+
+# Fan-out from aggregator to Judges
+workflow.add_edge("EvidenceAggregator", "Prosecutor")
+workflow.add_edge("EvidenceAggregator", "Defense")
+workflow.add_edge("EvidenceAggregator", "TechLead")
 
 # Fan-in judges to MinMaxOptimizer
 workflow.add_edge("Prosecutor", "MinMaxOptimizer")
 workflow.add_edge("Defense", "MinMaxOptimizer")
 workflow.add_edge("TechLead", "MinMaxOptimizer")
 
-# Optimizer to ChiefJustice
+# Finalize
 workflow.add_edge("MinMaxOptimizer", "ChiefJustice")
-
 workflow.add_edge("ChiefJustice", END)
 
 # Compile

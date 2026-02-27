@@ -1,132 +1,86 @@
-"""state.py — Digital Courtroom graph state.
-
-Pipeline: detectives → judges → verdict
-"""
+"""src/state.py — Rubric-compliant State Definitions."""
 from __future__ import annotations
 
 import operator
-from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-
-# ---------------------------------------------------------------------------
-# Domain models (self-contained, no external import)
-# ---------------------------------------------------------------------------
+# --- Detective Output ---
 
 class Evidence(BaseModel):
-    """A single piece of auditor-collected evidence, tagged by rubric dimension."""
-    dimension_id: str = Field(..., pattern=r"^(forensic|doc)_[a-z0-9_]+$")
-    source: str = Field(..., min_length=1)
-    kind: str = Field(..., pattern=r"^(repo|doc)\.[a-z0-9_]+$")
-    content: str = Field(..., min_length=1)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-    collected_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    """A single piece of forensic evidence collected by Detectives."""
+    goal: str = Field(description="The specific goal this evidence addresses.")
+    found: bool = Field(description="Whether the artifact exists.")
+    content: Optional[str] = Field(default=None, description="The content of the evidence (e.g., code snippet).")
+    location: str = Field(description="File path or commit hash.")
+    rationale: str = Field(description="Rationale for confidence in the found evidence.")
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence score from 0 to 1.")
 
+# --- Judge Output ---
 
 class JudicialOpinion(BaseModel):
-    """A structured ruling produced by a Judge node for one rubric dimension."""
-    dimension_id: str = Field(..., pattern=r"^(forensic|doc)_[a-z0-9_]+$")
-    verdict: str = Field(..., pattern=r"^(pass|fail|partial)$")
-    score: float = Field(..., ge=0.0, le=1.0)
-    rationale: str = Field(..., min_length=10)
-    evidence_keys: List[str] = Field(default_factory=list)
-    ruled_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    """A structured opinion from one of the three judges."""
+    judge: Literal["Prosecutor", "Defense", "TechLead"]
+    criterion_id: str = Field(description="ID of the rubric criterion being judged.")
+    score: int = Field(ge=1, le=5, description="Score from 1 to 5.")
+    argument: str = Field(description="Detailed reasoning for the score.")
+    cited_evidence: List[str] = Field(default_factory=list, description="List of location strings linked to evidence.")
 
+# --- Chief Justice Output ---
 
-class FinalVerdict(BaseModel):
-    """Aggregate verdict synthesised from all JudicialOpinions."""
-    overall_score: float = Field(..., ge=0.0, le=1.0)
-    passed: bool
-    summary: str = Field(..., min_length=20)
-    dissent_summary: Optional[str] = None
-    remediation_plan: List[str] = Field(default_factory=list)
-    dimension_scores: Dict[str, float] = Field(default_factory=dict)
-    dialectical_summary: str = Field(..., min_length=20)
-    architectural_flaws: List[str] = Field(default_factory=list)
-    issued_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
-
-
-# ---------------------------------------------------------------------------
-# Sub-states — one per pipeline stage
-# ---------------------------------------------------------------------------
-
-class InputState(TypedDict):
-    """Configuration injected before graph start."""
-    repo_url: str
-    pdf_paths: List[str]
-
-
-class DetectiveState(TypedDict):
-    """Output of the parallel detective nodes (fan-out → fan-in).
-
-    evidence is Dict[dimension_id, Evidence] so each rubric dimension gets
-    exactly one canonical Evidence entry.  operator.ior merges dicts from
-    parallel branches (last writer wins per key).
-    """
-    evidence: Annotated[Dict[str, Evidence], operator.ior]
-    repo_dir: Optional[str]
-    errors: Annotated[List[str], operator.add]
-
-
-class JudgeState(TypedDict):
-    """Output of the judge nodes — multiple roles contributing opinions."""
-    opinions: Annotated[List[JudicialOpinion], operator.add]
-
-
-class VerdictState(TypedDict):
-    """Terminal output produced by the Aggregator/Chief-Judge node."""
-    verdict: Optional[FinalVerdict]
-
-
-# ---------------------------------------------------------------------------
-# Full composed graph state
-# ---------------------------------------------------------------------------
-
-class GraphState(InputState, DetectiveState, JudgeState, VerdictState):
-    """
-    Complete state flowing through the audit graph.
-    
-    New Fields for Dialectical Synthesis:
-    - debate_log: List of trade-off discussions from judges.
-    - architectural_flaws: List of deep flaws identified by MinMax phase.
-
-    Stages
-    ------
-    1. detectives  -> populate DetectiveState.evidence  (fan-out / fan-in)
-    2. judges      -> populate JudgeState.opinions      (one per dimension)
-    3. aggregator  -> populate VerdictState.verdict
-    """
-    debate_log: Annotated[List[str], operator.add]
-    architectural_flaws: Annotated[List[str], operator.add]
-
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
-
-def initial_state(repo_url: str, pdf_paths: List[str] | None = None) -> GraphState:
-    return GraphState(
-        repo_url=repo_url,
-        pdf_paths=pdf_paths or [],
-        evidence={},
-        repo_dir=None,
-        errors=[],
-        opinions=[],
-        verdict=None,
-        debate_log=[],
-        architectural_flaws=[],
+class CriterionResult(BaseModel):
+    """Final result for a specific rubric dimension."""
+    dimension_id: str
+    dimension_name: str
+    final_score: int = Field(ge=1, le=5)
+    judge_opinions: List[JudicialOpinion]
+    dissent_summary: Optional[str] = Field(
+        default=None,
+        description="Required when score variance > 2",
+    )
+    remediation: str = Field(
+        description="Specific file-level instructions for improvement",
     )
 
+class AuditReport(BaseModel):
+    """The final synthesized audit report."""
+    repo_url: str
+    executive_summary: str
+    overall_score: float
+    criteria: List[CriterionResult]
+    remediation_plan: str
 
-# AgentState is the primary state used by the graph (aliased for requirements)
-AgentState = GraphState
+# --- Graph State ---
 
+class AgentState(TypedDict):
+    """The complete state for the Automaton Auditor swarm."""
+    repo_url: str
+    pdf_path: str
+    rubric_dimensions: List[Dict]
+    # Use reducers to prevent parallel agents from overwriting data
+    evidences: Annotated[
+        Dict[str, List[Evidence]], operator.ior
+    ]
+    opinions: Annotated[
+        List[JudicialOpinion], operator.add
+    ]
+    final_report: Optional[AuditReport]
+    errors: Annotated[List[str], operator.add]
+
+def initial_state(repo_url: str, pdf_path: str, rubric_dimensions: List[Dict] | None = None) -> AgentState:
+    return {
+        "repo_url": repo_url,
+        "pdf_path": pdf_path,
+        "rubric_dimensions": rubric_dimensions or [],
+        "evidences": {},
+        "opinions": [],
+        "final_report": None,
+        "errors": []
+    }
 
 __all__ = [
-    "Evidence", "JudicialOpinion", "FinalVerdict",
-    "InputState", "DetectiveState", "JudgeState", "VerdictState",
-    "GraphState", "AgentState", "initial_state",
+    "Evidence", "JudicialOpinion", "CriterionResult", 
+    "AuditReport", "AgentState", "initial_state"
 ]
