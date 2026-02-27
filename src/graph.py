@@ -1,23 +1,31 @@
 """src/graph.py — Hardened StateGraph with conditional routing."""
 from __future__ import annotations
 
-import logging
+import operator
 from typing import Dict, List, Literal
 
+from dotenv import load_dotenv
+
+# Load environment variables from .env before anything else
+load_dotenv()
 from langgraph.graph import END, START, StateGraph
 
-from .nodes.detectives import doc_analyst, repo_investigator
-from .state import AgentState, FinalVerdict
+from langsmith import traceable
+from .nodes.detectives import doc_analyst, repo_investigator, vision_inspector
+from .nodes.judges import prosecutor_node, defense_node, tech_lead_node
+from .state import AgentState, Evidence, FinalVerdict, JudicialOpinion
 
-log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pre-flight / Config validation node
 # ---------------------------------------------------------------------------
 
+@traceable(name="check_config")
 def check_config(state: AgentState) -> dict:
     """Validates inputs before starting analysis."""
     errors = []
+    evidence = {}
+    
     repo = state.get("repo_url", "")
     if not repo.startswith("http"):
         errors.append(f"Invalid repo_url: {repo}")
@@ -27,7 +35,19 @@ def check_config(state: AgentState) -> dict:
         if not path.endswith(".pdf"):
             errors.append(f"Invalid PDF path (must end in .pdf): {path}")
 
-    return {"errors": errors}
+    if not errors:
+        ev = Evidence(
+            dimension_id="forensic_preflight",
+            source="system",
+            kind="repo.config_check",
+            content=f"Configuration validated for repo: {repo}",
+            metadata={"pdf_count": len(state.get("pdf_paths", []))}
+        )
+        evidence[ev.dimension_id] = ev
+
+    return {"errors": errors, "evidence": evidence}
+
+check_config.name = "check_config"
 
 
 # ---------------------------------------------------------------------------
@@ -37,11 +57,11 @@ def check_config(state: AgentState) -> dict:
 def route_detectives(state: AgentState) -> List[str]:
     """Determines which detectives to run based on available input."""
     if state.get("errors"):
-        return [END] # Stop if pre-flight failed
+        return [END]
     
-    detectives = ["repo_investigator"]
+    detectives = ["RepoInvestigator"]
     if state.get("pdf_paths"):
-        detectives.append("doc_analyst")
+        detectives.extend(["DocAnalyst", "VisionInspector"])
     return detectives
 
 
@@ -49,29 +69,30 @@ def route_detectives(state: AgentState) -> List[str]:
 # Aggregator (Chief Judge)
 # ---------------------------------------------------------------------------
 
-def evidence_aggregator(state: AgentState) -> dict:
-    """Synthesizes FinalVerdict from collected Evidence."""
+@traceable(name="ChiefJustice")
+def chief_justice_node(state: AgentState) -> dict:
+    """Synthesizes FinalVerdict from multi-role JudicialOpinions."""
+    opinions = state.get("opinions", [])
     ev_count = len(state["evidence"])
-    err_count = len(state["errors"])
     
-    summary = (
-        f"Audit complete. Collected {ev_count} pieces of forensic evidence. "
-        f"Encountered {err_count} non-fatal errors during investigation."
-    )
+    avg_score = sum(o.score for o in opinions) / len(opinions) if opinions else 0.0
     
-    # Basic scoring placeholder
-    score = 1.0 if err_count == 0 and ev_count > 0 else 0.5
-    if ev_count == 0:
-        score = 0.0
-
+    summary = f"Audit summarized by Chief Justice. Collected {ev_count} pieces of evidence and {len(opinions)} judicial opinions."
+    
+    dissent = [f"{o.dimension_id}: {o.rationale}" for o in opinions if o.verdict == "fail"]
+            
     verdict = FinalVerdict(
-        overall_score=score,
-        passed=score >= 0.7,
+        overall_score=avg_score,
+        passed=avg_score >= 0.7,
         summary=summary,
-        dimension_scores={k: 1.0 for k in state["evidence"].keys()}
+        dissent_summary="\n".join(dissent) if dissent else "No major dissent.",
+        remediation_plan=["Review AST complexity", "Verify PDF methodology"] if avg_score < 0.9 else [],
+        dimension_scores={o.dimension_id: o.score for o in opinions}
     )
     
     return {"verdict": verdict}
+
+chief_justice_node.name = "chief_justice_node"
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +103,13 @@ workflow = StateGraph(AgentState)
 
 # Add Nodes
 workflow.add_node("check_config", check_config)
-workflow.add_node("repo_investigator", repo_investigator)
-workflow.add_node("doc_analyst", doc_analyst)
-workflow.add_node("evidence_aggregator", evidence_aggregator)
+workflow.add_node("RepoInvestigator", repo_investigator)
+workflow.add_node("DocAnalyst", doc_analyst)
+workflow.add_node("VisionInspector", vision_inspector)
+workflow.add_node("Prosecutor", prosecutor_node)
+workflow.add_node("Defense", defense_node)
+workflow.add_node("TechLead", tech_lead_node)
+workflow.add_node("ChiefJustice", chief_justice_node)
 
 # Define Edges / Routing
 workflow.add_edge(START, "check_config")
@@ -94,17 +119,25 @@ workflow.add_conditional_edges(
     "check_config",
     route_detectives,
     {
-        "repo_investigator": "repo_investigator",
-        "doc_analyst": "doc_analyst",
+        "RepoInvestigator": "RepoInvestigator",
+        "DocAnalyst": "DocAnalyst",
+        "VisionInspector": "VisionInspector",
         END: END
     }
 )
 
-# Fan-in to aggregator
-workflow.add_edge("repo_investigator", "evidence_aggregator")
-workflow.add_edge("doc_analyst", "evidence_aggregator")
+# Fan-out from detectives to multiple judges
+for detective in ["RepoInvestigator", "DocAnalyst", "VisionInspector"]:
+    workflow.add_edge(detective, "Prosecutor")
+    workflow.add_edge(detective, "Defense")
+    workflow.add_edge(detective, "TechLead")
 
-workflow.add_edge("evidence_aggregator", END)
+# Fan-in judges to ChiefJustice
+workflow.add_edge("Prosecutor", "ChiefJustice")
+workflow.add_edge("Defense", "ChiefJustice")
+workflow.add_edge("TechLead", "ChiefJustice")
+
+workflow.add_edge("ChiefJustice", END)
 
 # Compile
 audit_graph = workflow.compile()

@@ -41,6 +41,8 @@ class FinalVerdict(BaseModel):
     overall_score: float = Field(..., ge=0.0, le=1.0)
     passed: bool
     summary: str = Field(..., min_length=20)
+    dissent_summary: Optional[str] = None
+    remediation_plan: List[str] = Field(default_factory=list)
     dimension_scores: Dict[str, float] = Field(default_factory=dict)
     issued_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
@@ -68,8 +70,8 @@ class DetectiveState(TypedDict):
 
 
 class JudgeState(TypedDict):
-    """Output of the judge nodes — one opinion per dimension."""
-    opinions: Annotated[Dict[str, JudicialOpinion], operator.ior]
+    """Output of the judge nodes — multiple roles contributing opinions."""
+    opinions: Annotated[List[JudicialOpinion], operator.add]
 
 
 class VerdictState(TypedDict):
@@ -103,7 +105,7 @@ def initial_state(repo_url: str, pdf_paths: List[str] | None = None) -> GraphSta
         evidence={},
         repo_dir=None,
         errors=[],
-        opinions={},
+        opinions=[],
         verdict=None,
     )
 
