@@ -1,163 +1,54 @@
 # Automaton Auditor
 
-> **Week 2 TRP project** — A multi-agent system that audits GitHub repositories and PDF reports using LangGraph.
+> **Week 2 TRP project** — A production-grade multi-agent swarm for code governance and repository auditing.
 
 ## Architecture
 
-```
-          ┌──────────────────────────────────────────────────┐
-          │                   START                          │
-          └──────────────┬───────────────────┬──────────────┘
-                         │                   │
-                         ▼                   ▼
-             ┌─────────────────┐   ┌──────────────────┐
-             │ RepoInvestigator│   │   DocAnalyst     │  ← parallel (fan-out)
-             │                 │   │                  │
-             │ • git clone     │   │ • load PDF       │
-             │ • git log       │   │ • chunk text     │
-             │ • AST analysis  │   │ • TF-IDF query   │
-             └────────┬────────┘   └────────┬─────────┘
-                      │                     │
-                      └──────────┬──────────┘
-                                 ▼
-                    ┌────────────────────────┐
-                    │  EvidenceAggregator    │  ← fan-in (operator.add merge)
-                    └────────────────────────┘
-                                 │
-                                 ▼
-                                END
-```
+The system uses a hierarchical **Fan-Out/Fan-In** pattern implemented with LangGraph:
 
-## Project Structure
+1.  **Detectives (Fan-Out)**: `RepoInvestigator`, `DocAnalyst`, and `VisionInspector` run in parallel to gather forensic evidence.
+2.  **Judges (Fan-Out)**: `Prosecutor`, `Defense`, and `TechLead` personas evaluate the evidence from conflicting perspectives.
+3.  **Supreme Court (Fan-In)**: The `ChiefJustice` synthesizes final verdicts using deterministic conflict-resolution rules.
 
-```
-automaton-auditor/
-├── src/
-│   ├── __init__.py
-│   ├── state.py           # Pydantic Evidence/JudicialOpinion + AgentState TypedDict
-│   ├── graph.py           # Compiled audit_graph (fan-out → fan-in)
-│   ├── nodes/
-│   │   ├── __init__.py
-│   │   └── detectives.py  # repo_investigator + doc_analyst LangGraph nodes
-│   └── tools/
-│       ├── __init__.py
-│       ├── repo_tools.py  # Sandboxed git clone, git log, AST graph
-│       └── doc_tools.py   # PDF ingestion, chunker, TF-IDF retrieval
-├── reports/               # Commit PDF reports here
-├── pyproject.toml
-├── .env.example
-└── README.md
-```
+## Core Features
+
+-   **10-Dimension Forensic Suite**: Audits Git progression, state rigor, graph architecture, security safety, and theoretical depth.
+-   **Dialectical Synthesis**: Resolves conflicts between adversarial agents (Prosecutor vs. Defense).
+-   **Deterministic Scoring**: Weighted scoring (Tech Lead 2x) and security overrides for reliable governance.
+-   **LangSmith Traceability**: Full observability into the swarm's decision-making process.
 
 ## Setup
 
-### Prerequisites
+1.  **Install Dependencies**:
+    ```bash
+    uv sync
+    ```
+2.  **Configure Environment**:
+    ```bash
+    cp .env.example .env
+    # Add your OPENAI_API_KEY (supports OpenRouter endpoints)
+    ```
 
-- Python ≥ 3.11
-- [uv](https://docs.astral.sh/uv/) (`pip install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- `git` on `$PATH`
+## Usage Entry Points
 
-### Install dependencies
-
+### 1. Live Audit (`main.py`)
+Run the full live audit on the configured repository. This requires active LLM credits.
 ```bash
-# Clone this repo
-git clone https://github.com/<your-org>/automaton-auditor.git
-cd automaton-auditor
-
-# Install all dependencies (creates .venv automatically)
-uv sync
-
-# (Optional) install dev dependencies
-uv sync --extra dev
+uv run python3 main.py
 ```
 
-### Configure environment
-
+### 2. Logic Verification (`verify_logic.py`)
+Test the entire workflow's synthesis and reporting logic using mock data. **Recommended for quick validation without API costs.**
 ```bash
-cp .env.example .env
-# Edit .env and fill in your API keys
+uv run python3 verify_logic.py
 ```
 
-The only *required* key for the skeleton to run (no LLM nodes yet) is `GITHUB_TOKEN` (optional, increases rate limits).  Set `OPENAI_API_KEY` when you add LLM-based judge nodes.
+## Output
+Audit reports are generated in Markdown format at:
+`audit/report_onself_generated/report.md`
 
-## Running the Detective Graph
-
-### Quickstart
-
-```bash
-# Audit a public GitHub repo (no PDFs)
-uv run python -c "
-from dotenv import load_dotenv; load_dotenv()
-from src.graph import audit_graph
-from src.state import initial_state
-
-result = audit_graph.invoke(
-    initial_state('https://github.com/langchain-ai/langgraph')
-)
-print(result['summary'])
-"
-```
-
-### With PDF reports
-
-```bash
-uv run python -c "
-from dotenv import load_dotenv; load_dotenv()
-from src.graph import audit_graph
-from src.state import initial_state
-
-result = audit_graph.invoke(
-    initial_state(
-        repo_url='https://github.com/langchain-ai/langgraph',
-        pdf_paths=['reports/interim_report.pdf'],
-    )
-)
-print(result['summary'])
-for ev in result['evidence']:
-    print(f'  [{ev.kind}] {ev.source[:60]}')
-"
-```
-
-### Streaming
-
-```bash
-uv run python -c "
-from dotenv import load_dotenv; load_dotenv()
-from src.graph import audit_graph
-from src.state import initial_state
-
-for chunk in audit_graph.stream(initial_state('https://github.com/langchain-ai/langgraph')):
-    print(chunk)
-"
-```
-
-## Development
-
-```bash
-# Lint
-uv run ruff check src/
-
-# Type-check
-uv run mypy src/
-
-# Tests
-uv run pytest
-```
-
-## State Model
-
-| Field        | Type                          | Reducer        | Description                          |
-|--------------|-------------------------------|----------------|--------------------------------------|
-| `repo_url`   | `str`                         | last-write     | Target GitHub URL                    |
-| `pdf_paths`  | `list[str]`                   | last-write     | Paths to PDF reports                 |
-| `repo_dir`   | `str \| None`                 | last-write     | Temporary clone directory            |
-| `evidence`   | `Dict[str, Evidence]`         | `operator.ior` | Evidence keyed by rubric dimension ID|
-| `opinions`   | `Dict[str, JudicialOpinion]`  | `operator.ior` | Judge outputs (Week 3)               |
-| `errors`     | `list[str]`                   | `operator.add` | Non-fatal errors from any node       |
-| `verdict`    | `FinalVerdict \| None`        | last-write     | Aggregator verdict object            |
-
-## Extending
-
-- **Add a Judge node**: create `src/nodes/judges.py`, wire it after `evidence_aggregator`
-- **Upgrade retrieval**: replace `query_chunks` in `doc_tools.py` with OpenAI embeddings + FAISS
-- **Add LLM synthesis**: call `langchain_openai.ChatOpenAI` inside any node; state is already LangSmith-traceable
+Includes:
+- Executive Summary (Metacognition & Dialectical Synthesis)
+- Overall Compliance Score
+- Dissenting Opinions & Detailed Logic
+- Remediation Plan
