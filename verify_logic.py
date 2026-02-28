@@ -21,6 +21,7 @@ def test_logic():
         "git_forensic_analysis": [Evidence(goal="Git", found=True, location="git", rationale="history ok", confidence=1.0)],
         "state_management_rigor": [Evidence(goal="State", found=True, location="state.py", rationale="Pydantic found", confidence=1.0, content="BaseModel operator.add")],
         "safe_tool_engineering": [Evidence(goal="Safety", found=False, location="tools/", rationale="os.system detected", confidence=1.0, content="os.system('rm -rf')")],
+        "swarm_visual": [Evidence(goal="Visuals", found=True, location="Repository Assets", rationale="Found 5 images and 2 mermaid diagrams", confidence=1.0, content="Detected 5 image assets. Detected 2 files containing Mermaid diagrams.")],
     }
     
     # 3. Inject Mock Opinions
@@ -34,6 +35,11 @@ def test_logic():
         JudicialOpinion(judge="Prosecutor", criterion_id="safe_tool_engineering", score=1, argument="Critical security flaw!"),
         JudicialOpinion(judge="Defense", criterion_id="safe_tool_engineering", score=2, argument="Easily fixed."),
         JudicialOpinion(judge="TechLead", criterion_id="safe_tool_engineering", score=1, argument="Unacceptable risk."),
+
+        # Dimension: Visuals
+        JudicialOpinion(judge="Prosecutor", criterion_id="swarm_visual", score=4, argument="Good diagrams."),
+        JudicialOpinion(judge="Defense", criterion_id="swarm_visual", score=5, argument="Excellent visual clarity."),
+        JudicialOpinion(judge="TechLead", criterion_id="swarm_visual", score=5, argument="High architectural transparency."),
     ]
     
     # 4. Run Optimizer

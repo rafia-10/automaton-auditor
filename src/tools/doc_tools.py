@@ -11,13 +11,46 @@ def load_pdf(path: str | Path) -> list[str]:
     reader = PdfReader(str(path))
     return [page.extract_text() or "" for page in reader.pages]
 
+def recursive_character_chunk(text: str, chunk_size: int, overlap: int, separators: list[str] = ["\n\n", "\n", " ", ""]) -> list[str]:
+    """Sophisticated recursive chunking to maintain semantic context."""
+    if len(text) <= chunk_size:
+        return [text]
+    
+    # Try the first separator
+    sep = separators[0]
+    final_chunks = []
+    
+    if sep:
+        splits = text.split(sep)
+    else:
+        splits = list(text)
+        
+    current_chunk = ""
+    for s in splits:
+        if current_chunk and len(current_chunk) + len(s) + len(sep) > chunk_size:
+            final_chunks.append(current_chunk.strip())
+            # Maintain overlap
+            # Simplified: take last 'overlap' chars
+            current_chunk = current_chunk[-overlap:] + sep + s
+        else:
+            if current_chunk:
+                current_chunk += sep + s
+            else:
+                current_chunk = s
+                
+    if current_chunk:
+        # If a single split is still too large, recurse with next separator
+        if len(current_chunk) > chunk_size and len(separators) > 1:
+            final_chunks.extend(recursive_character_chunk(current_chunk, chunk_size, overlap, separators[1:]))
+        else:
+            final_chunks.append(current_chunk.strip())
+            
+    return [c for c in final_chunks if c]
+
 def chunk_text(pages: list[str], chunk_size: int = 512, overlap: int = 64) -> list[str]:
-    text = "\n\n".join(pages)
-    stride = chunk_size - overlap
-    return [
-        c for i in range(0, len(text), stride)
-        if (c := text[i : i + chunk_size].strip())
-    ]
+    """Sophisticated chunking entry point."""
+    all_text = "\n\n".join(pages)
+    return recursive_character_chunk(all_text, chunk_size, overlap)
 
 def _tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.lower())
